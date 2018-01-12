@@ -12,11 +12,12 @@ from finsymbols import symbols
 import time
 from joblib import Parallel, delayed
 import multiprocessing
+import urllib
 
-'''
+
 class FindStock:
     my_api_key = '6NUDYFUECGSY7L9C'
-    ts = alpha_vantage.timeseries.TimeSeries(key = my_api_key, output_format='pandas')
+    ts = timeseries.TimeSeries(key = my_api_key, output_format='pandas')
 
     def __init__(self):
         sp500 = symbols.get_sp500_symbols()
@@ -27,8 +28,7 @@ class FindStock:
         for exchanger in self.exchanger_list:
             for listed_company in exchanger:
                 symbol = listed_company['symbol']
-                data, meta_data = ts.get_daily_adjusted(symbol, outputsize = 'compact')           
-'''
+                data, meta_data = ts.get_daily_adjusted(symbol, outputsize='compact')
 
 
 def is_break_high(stock_symbol):
@@ -39,13 +39,12 @@ def is_break_high(stock_symbol):
         highest_price = stock_price['5. adjusted close'].max()
         last_price = stock_price['5. adjusted close'].iloc[-1]
         if last_price == highest_price:
-            print('Break high: ', listed_company['company'])
-            break_high = symbol
+            print('Break high: ', modified_ticker)
+            break_high = modified_ticker
     except ValueError:
-        print('ValueError for :', symbol)
-    except :
-        print('Error happened.')
-
+        print('ValueError for :', modified_ticker)
+    except urllib.error.HTTPError:
+        print('HTTP Error')
     return break_high
 
 
@@ -54,10 +53,13 @@ if __name__ == "__main__":
     nyse = symbols.get_nyse_symbols()
     amex = symbols.get_amex_symbols()
     nasdaq = symbols.get_nasdaq_symbols()
-    exchanger_list = [amex]
+    exchanger_list = [sp500]
 
     num_cores = multiprocessing.cpu_count()
-    use_parallel = False
+    if num_cores > 1:
+        use_parallel = True
+    else:
+        use_parallel = False
 
     selected_stock = set()
 
@@ -68,7 +70,7 @@ if __name__ == "__main__":
     if use_parallel:
         for exchanger in exchanger_list:
             results = Parallel(n_jobs=num_cores, backend="threading")(
-                delayed(is_break_high)(listed_company['symbol'].split('^')[0]) for listed_company in exchanger)
+                delayed(is_break_high)(listed_company['symbol']) for listed_company in exchanger)
     else:
         for exchanger in exchanger_list:
             for listed_company in exchanger:
