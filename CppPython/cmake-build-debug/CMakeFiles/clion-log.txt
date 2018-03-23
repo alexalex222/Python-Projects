@@ -1,0 +1,9 @@
+/Applications/CLion.app/Contents/bin/cmake/bin/cmake -DCMAKE_BUILD_TYPE=Debug -G "CodeBlocks - Unix Makefiles" /Users/kuilinchen/Repositories/Python-Projects/CppPython
+-- PYTHON_DIRS: /Users/kuilinchen/anaconda3/bin/python
+-- Found PythonLibs: /Users/kuilinchen/anaconda3/lib/libpython3.6m.dylib (found version "3.6.2") 
+-- PYTHON_INCLUDE_DIRS: /Users/kuilinchen/anaconda3/include/python3.6m
+-- PYTHON_LIBRARIES: /Users/kuilinchen/anaconda3/lib/libpython3.6m.dylib
+-- PYTHON_VERSION: 
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /Users/kuilinchen/Repositories/Python-Projects/CppPython/cmake-build-debug
