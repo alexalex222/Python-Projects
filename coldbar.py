@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
 Created on Tue May 22 11:04:35 2018
-
 @author: kchen
 """
 
@@ -29,7 +28,7 @@ class ColdBar:
         self.fmet_tight = False
         self.big_model_err = False
         self.cold_from_furnace = False
-        self.email_text = "This is an automatically generated Email. <br />"
+        self.email_text = "This is an automatically generated Email. <br /><br /><br />"
 
         self.piece_query_string = """
         SELECT 
@@ -420,6 +419,18 @@ class ColdBar:
         SELECT
         HMILL_PCE.HMILL_PCE_NO,
         HMILL_PCE.GEN_EST,
+        HMILL_FM_MODEL.FM_FAM_NO, 
+        HMILL_FM_MODEL.GRT_INDEX_NO, 
+        HMILL_FM_ENT_PDI.AIM_ENT_TEMP, 
+        HMILL_FM_ENT_PDI.MEAS_FME_TEMP, 
+        SIGN(HMILL_FM_MODEL.GRT_INDEX_NO - 4) AS TEST_SIGN,
+        DECODE(HMILL_FM_MODEL.FM_FAM_NO, 2, 
+        HMILL_FM_ENT_PDI.AIM_ENT_TEMP - 30, 
+        DECODE(SIGN(HMILL_FM_MODEL.GRT_INDEX_NO - 5), -1,  
+        HMILL_FM_ENT_PDI.AIM_ENT_TEMP - 30, 
+        HMILL_FM_ENT_PDI.AIM_ENT_TEMP - 40)) AS FMET_LOW_LIM,
+        MHS_PROD.SLAB_DLY_DUR, 
+        MHS_PROD.SLAB_EXTR_EST, 
         MHS_PROD.SLAB_CHRG_EST, 
         MHS_PROD.SLAB_CHRG_TEMP,
         MHS_PROD.SCHED_HT_INDEX_NO, 
@@ -428,16 +439,25 @@ class ColdBar:
         MHS_PROD.SCHED_EXTR_TEMP, 
         MHS_PROD.INTGRT_AIM_FUR_EXTR_TEMP, 
         MHS_PROD.CALC_SLAB_EXTR_TEMP, 
-        MILL_QMS_TREND.FM_ARR_AVG_LEAD_TEMP, 
+        HMILL_RM_PHYS.RM_BCK_CALC_FUR_EXTR_TEMP -15 AS RM_BCK_CALC_FUR_EXTR_TEMP, 
+        HMILL_QMS_TREND.FM_ARR_AVG_LEAD_TEMP, 
         HMILL_QMS_TREND.AIM_FM_ARR_AVG_LEAD_TEMP
         FROM
         WIPHM2_PRD.HMILL_PCE HMILL_PCE,
-        WIPHM2_PRD.MILL_QMS_TREND MILL_QMS_TREND, 
-        MHS_PRD.MHS_PROD MHS_PROD
+        WIPHM2_PRD.HMILL_QMS_TREND HMILL_QMS_TREND, 
+        MHS_PRD.MHS_PROD MHS_PROD,
+        WIPHM2_PRD.HMILL_RM_PHYS HMILL_RM_PHYS,
+        WIPHM2_PRD.HMILL_FM_MODEL HMILL_FM_MODEL,
+        WIPHM2_PRD.HMILL_FM_ENT_PDI HMILL_FM_ENT_PDI
         WHERE
-        HMILL_PCE.HMILL_PCE_NO = MHS_PORD.HMILL_PCE_NO AND 
-        HMILL_PCE.HMILL_PCE_NO = MILL_QMS_TREND.HMILL_PCE_NO AND 
-        HMILL_PCE.HMILL_PCE_NO >= {0} - 20 
+        HMILL_PCE.HMILL_PCE_NO = MHS_PROD.HMILL_PCE_NO AND 
+        HMILL_PCE.HMILL_PCE_NO = HMILL_QMS_TREND.HMILL_PCE_NO AND 
+        HMILL_PCE.HMILL_PCE_NO = HMILL_RM_PHYS.HMILL_PCE_NO AND 
+        HMILL_PCE.HMILL_PCE_NO = HMILL_FM_MODEL.HMILL_PCE_NO AND 
+        HMILL_PCE.HMILL_PCE_NO = HMILL_FM_ENT_PDI.HMILL_PCE_NO AND 
+        HMILL_PCE.HMILL_PCE_NO >= {0} - 20 AND
+        HMILL_PCE.HMILL_PCE_NO <= {0}
+        ;
         """
         
         self.piece_data = self._query_data(self.piece_query_string.format(self.start_date, 
@@ -640,34 +660,97 @@ class ColdBar:
         fig.savefig(self.directory + '\\heat_his.png')
 
     def plot_qms_trend(self):
-        fig, axes = plt.subplot(2, 2, figsize=(14, 8))
+        fig, axes = plt.subplots(2, 2, figsize=(19, 9.5))
 
         # DOT trend
-        axes[0][0].plot(self.trend_data['GEN_EST'], self.trend_data['INTGRT_AIM_FUR_EXTR_TEMP'], color='blue')
-        axes[0][0].plot(self.trend_data['GEN_EST'], self.trend_data['CALC_SLAB_EXTR_TEMP'], '.', color='blue')
+        ln1 = axes[0][0].plot(self.trend_data['SLAB_EXTR_EST'], self.trend_data['INTGRT_AIM_FUR_EXTR_TEMP'], color='blue')
+        ln2 = axes[0][0].plot(self.trend_data['SLAB_EXTR_EST'], self.trend_data['CALC_SLAB_EXTR_TEMP'], 'o-', color='green', markersize=10)
+        ln3 = axes[0][0].plot(self.trend_data['SLAB_EXTR_EST'], self.trend_data['RM_BCK_CALC_FUR_EXTR_TEMP'], 'o-', color='orange', markersize=10)
         axes[0][0].xaxis.set_major_formatter(matplotlib.dates.DateFormatter('%H:%M'))
         axes[0][0].fmt_xdata = matplotlib.dates.DateFormatter('%H:%M')
         axes[0][0].set_ylabel('Temperature/C')
+        axes[0][0].set_ylim(
+                min(self.trend_data['INTGRT_AIM_FUR_EXTR_TEMP'].min(), 
+                    self.trend_data['CALC_SLAB_EXTR_TEMP'].min(), 
+                    max(self.trend_data['RM_BCK_CALC_FUR_EXTR_TEMP'].min(), 1110)), 
+                max(self.trend_data['INTGRT_AIM_FUR_EXTR_TEMP'].max(), 
+                    self.trend_data['CALC_SLAB_EXTR_TEMP'].max(), 
+                    self.trend_data['RM_BCK_CALC_FUR_EXTR_TEMP'].max()) + 10)
+        axes[0][0].grid( axis='y', linestyle='--')
+        axes[0][0].set_ylabel('Temperature/C')
+        
+        """
+        ax00_s = axes[0][0].twinx()
+        ax00_s.plot(self.trend_data['SLAB_EXTR_EST'], self.trend_data['SLAB_DLY_DUR']/60, 'o-', color='red', markersize=10)
+        ax00_s.xaxis.set_major_formatter(matplotlib.dates.DateFormatter('%H:%M'))
+        ax00_s.fmt_xdata = matplotlib.dates.DateFormatter('%H:%M')
+        ax00_s.set_ylim(0, 4*self.trend_data['SLAB_DLY_DUR'].max()/60)
+        ax00_s.set_ylabel('Total Delay/min')
+        """
+        
+        lns = ln1 + ln2 + ln3
+        labs = [l.get_label() for l in lns]
+        axes[0][0].legend(lns, labs, loc=0)
 
         # FM arrival trend
-        axes[1][0].plot(self.trend_data['SLAB_CHRG_EST'], self.trend_data['AIM_FM_ARR_AVG_LEAD_TEMP'], color='blue')
-        axes[1][0].plot(self.trend_data['SLAB_CHRG_EST'], self.trend_data['FM_ARR_AVG_LEAD_TEMP'], '.', color='blue')
+        ln1 = axes[1][0].plot(self.trend_data['SLAB_EXTR_EST'], self.trend_data['AIM_FM_ARR_AVG_LEAD_TEMP'], color='blue')
+        axes[1][0].plot(self.trend_data['SLAB_EXTR_EST'], self.trend_data['AIM_FM_ARR_AVG_LEAD_TEMP'] + 30, color='red')
+        axes[1][0].plot(self.trend_data['SLAB_EXTR_EST'], self.trend_data['AIM_FM_ARR_AVG_LEAD_TEMP'] - 20, color='red')
+        ln2 = axes[1][0].plot(self.trend_data['SLAB_EXTR_EST'], self.trend_data['FM_ARR_AVG_LEAD_TEMP'], 'o-', color='green', markersize=10)
         axes[1][0].xaxis.set_major_formatter(matplotlib.dates.DateFormatter('%H:%M'))
         axes[1][0].fmt_xdata = matplotlib.dates.DateFormatter('%H:%M')
         axes[1][0].set_ylabel('Temperature/C')
+        axes[1][0].set_xlabel('SLAB_EXTR_EST')
+        axes[1][0].set_ylim(1000, 1150)
+        axes[1][0].grid( axis='y', linestyle='--')
+        lns = ln1 + ln2
+        labs = [l.get_label() for l in lns]
+        axes[1][0].legend(lns, labs, loc=3)
 
-        # HIN trend
-        axes[0][1].plot(self.trend_data['SLAB_CHRG_EST'], self.trend_data['SCHED_HT_INDEX_NO'], '.', color='blue')
-        axes[0][1].plot(self.trend_data['SLAB_CHRG_EST'], self.trend_data['INTGRT_HT_NO'], '.', color='blue')
+        # HIN and charge tempearture trend
+        ln1 = axes[0][1].plot(self.trend_data['SLAB_EXTR_EST'], 
+                  self.trend_data['SLAB_CHRG_TEMP'], 
+                  'o-', color='blue', markersize=10)
         axes[0][1].xaxis.set_major_formatter(matplotlib.dates.DateFormatter('%H:%M'))
         axes[0][1].fmt_xdata = matplotlib.dates.DateFormatter('%H:%M')
-        axes[0][1].set_ylabel('HIN')
+        axes[0][1].set_ylabel('Temperature/C')
+        axes[0][1].grid( axis='y', linestyle='--')
+        ax01_s = axes[0][1].twinx()
+        ln2 = ax01_s.plot(self.trend_data['SLAB_EXTR_EST'], 
+                          self.trend_data['SCHED_HT_INDEX_NO'], 
+                          'o-', color='green', markersize=10)
+        ln3 = ax01_s.plot(self.trend_data['SLAB_EXTR_EST'], 
+                          self.trend_data['INTGRT_HT_NO'], 
+                          'o-', color='orange', markersize=10)
+        ax01_s.xaxis.set_major_formatter(matplotlib.dates.DateFormatter('%H:%M'))
+        ax01_s.fmt_xdata = matplotlib.dates.DateFormatter('%H:%M')
+        ax01_s.set_ylabel('HIN')
+        lns = ln1 + ln2 + ln3
+        labs = [l.get_label() for l in lns]
+        axes[0][1].legend(lns, labs, loc=0)
 
-        # Charge temperature trend
-        axes[1][1].plot(self.trend_data['SLAB_CHRG_EST'], self.trend_data['SLAB_CHRG_TEMP'], '.', color='blue')
+        # FM entry trend
+        ln1 = axes[1][1].plot(self.trend_data['SLAB_EXTR_EST'], 
+                  self.trend_data['AIM_ENT_TEMP'], color='blue')
+        axes[1][1].plot(self.trend_data['SLAB_EXTR_EST'], 
+            self.trend_data['AIM_ENT_TEMP'] + 30, color='red')
+        axes[1][1].plot(self.trend_data['SLAB_EXTR_EST'], 
+            self.trend_data['AIM_ENT_TEMP'] - 20, color='red')
+        ln2 = axes[1][1].plot(self.trend_data['SLAB_EXTR_EST'], 
+                  self.trend_data['MEAS_FME_TEMP'], 'o-', 
+                  color='green', markersize=10)
+        ln3 = axes[1][1].plot(self.trend_data['SLAB_EXTR_EST'], 
+                  self.trend_data['FMET_LOW_LIM'], '--', 
+                  color='orange')
         axes[1][1].xaxis.set_major_formatter(matplotlib.dates.DateFormatter('%H:%M'))
         axes[1][1].fmt_xdata = matplotlib.dates.DateFormatter('%H:%M')
         axes[1][1].set_ylabel('Temperature/C')
+        axes[1][1].set_xlabel('SLAB_EXTR_EST')
+        axes[1][1].set_ylim(1000, 1150)
+        axes[1][1].grid( axis='y', linestyle='--')
+        lns = ln1 + ln2 + ln3
+        labs = [l.get_label() for l in lns]
+        axes[1][1].legend(lns, labs, loc=3)
 
         plt.tight_layout()
         fig.savefig(self.directory + '\\trend.png')
@@ -678,14 +761,27 @@ class ColdBar:
         mail.To = 'kuilin.chen@arcelormittal.com'
         mail.Subject = str(self.page) + '-' + str(self.item) + ' cold'
         attachment1 = mail.Attachments.Add(self.directory + '\\heat_his.png')
-        attachment1.PropertyAccessor.SetProperty("http://schemas.microsoft.com/mapi/proptag/0x3712001F", "MyId1")
+        attachment1.PropertyAccessor.SetProperty(
+                "http://schemas.microsoft.com/mapi/proptag/0x3712001F", "MyId1")
         attachment2 = mail.Attachments.Add(self.directory + '\\comb_zone.png')
-        attachment2.PropertyAccessor.SetProperty("http://schemas.microsoft.com/mapi/proptag/0x3712001F", "MyId2")
+        attachment2.PropertyAccessor.SetProperty(
+                "http://schemas.microsoft.com/mapi/proptag/0x3712001F", "MyId2")
         attachment3 = mail.Attachments.Add(self.directory + '\\RMXT.png')
-        attachment3.PropertyAccessor.SetProperty("http://schemas.microsoft.com/mapi/proptag/0x3712001F", "MyId3")
+        attachment3.PropertyAccessor.SetProperty(
+                "http://schemas.microsoft.com/mapi/proptag/0x3712001F", "MyId3")
         attachment4 = mail.Attachments.Add(self.directory + '\\trend.png')
-        attachment4.PropertyAccessor.SetProperty("http://schemas.microsoft.com/mapi/proptag/0x3712001F", "MyId4")
-        mail.HTMLBody = "<html><body>{0} <br /><br /><br /><img src=""cid:MyId1""><br /><img src=""cid:MyId2""><br /><img src=""cid:MyId3""><br /><img src=""cid:MyId4""><br /></body></html>".format(self.email_text)
+        attachment4.PropertyAccessor.SetProperty(
+                "http://schemas.microsoft.com/mapi/proptag/0x3712001F", "MyId4")
+        mail.HTMLBody = """
+        <html>
+        <body>{0} <br /><br /><br />
+        <img src=cid:MyId1><br />
+        <img src=cid:MyId2><br />
+        <img src=cid:MyId3><br />
+        <img src=cid:MyId4><br />
+        </body>
+        </html>
+        """.format(self.email_text)
         mail.send
        
 
@@ -695,4 +791,4 @@ if __name__ == "__main__":
     
     cb1 = ColdBar(963, 13, '2018-05-18', '2018-05-20')
     
-    #cb1.send_email()
+    cb1.send_email()
