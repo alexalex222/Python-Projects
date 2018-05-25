@@ -14,7 +14,7 @@ import matplotlib.dates
 from datetime import timedelta
 import win32com.client as win32
 import os
-from scipy.interpolate import interp1d
+
 
 class ColdBar:
     def __init__(self, page, item, start_date, end_date):
@@ -27,7 +27,7 @@ class ColdBar:
         self.pass_schedule_change = False
         self.head_body_temp_bias = False
         self.fmet_tight = False
-        self.big_model_err =False
+        self.big_model_err = False
         self.cold_from_furnace = False
         self.email_text = "This is an automatically generated Email. <br />"
 
@@ -409,11 +409,35 @@ class ColdBar:
         """
 
         self.temp_scan_query_string = """
-        select * from HMILL_PCE_QUAL_SUMR
-        where  
+        SELECT * FROM HMILL_PCE_QUAL_SUMR
+        WHERE  
         SCAN_NAME LIKE '%RMX TEMPERATURE - MAX A or B%' AND 
         HMILL_PCE_NO = {0}
         ;
+        """
+
+        self.trend_query_string = """
+        SELECT
+        HMILL_PCE.HMILL_PCE_NO,
+        HMILL_PCE.GEN_EST,
+        MHS_PROD.SLAB_CHRG_EST, 
+        MHS_PROD.SLAB_CHRG_TEMP,
+        MHS_PROD.SCHED_HT_INDEX_NO, 
+        MHS_PROD.INTGRT_HT_NO, 
+        MHS_PROD.INTGRT_EFCT_HT_NO, 
+        MHS_PROD.SCHED_EXTR_TEMP, 
+        MHS_PROD.INTGRT_AIM_FUR_EXTR_TEMP, 
+        MHS_PROD.CALC_SLAB_EXTR_TEMP, 
+        MILL_QMS_TREND.FM_ARR_AVG_LEAD_TEMP, 
+        HMILL_QMS_TREND.AIM_FM_ARR_AVG_LEAD_TEMP
+        FROM
+        WIPHM2_PRD.HMILL_PCE HMILL_PCE,
+        WIPHM2_PRD.MILL_QMS_TREND MILL_QMS_TREND, 
+        MHS_PRD.MHS_PROD MHS_PROD
+        WHERE
+        HMILL_PCE.HMILL_PCE_NO = MHS_PORD.HMILL_PCE_NO AND 
+        HMILL_PCE.HMILL_PCE_NO = MILL_QMS_TREND.HMILL_PCE_NO AND 
+        HMILL_PCE.HMILL_PCE_NO >= {0} - 20 
         """
         
         self.piece_data = self._query_data(self.piece_query_string.format(self.start_date, 
@@ -421,6 +445,7 @@ class ColdBar:
         self.comb_data = self._query_data(self.comb_query_string.format( self.piece_data['SLAB_CHRG_EST'][0].strftime("%Y-%m-%d %H:%M:%S"), 
                 self.piece_data['SLAB_EXTR_EST'][0].strftime("%Y-%m-%d %H:%M:%S"), self.piece_data['FUR_NO'][0]))
         self.scan_data = self._query_data(self.temp_scan_query_string.format(self.piece_data['HMILL_PCE_NO'][0]))
+        self.trend_data = self._query_data(self.trend_query_string.format(self.piece_data['HMILL_PCE_NO'][0]))
         
         self._preheat_idx = (self.comb_data['FILE_EST'] > self.piece_data['SLAB_CHRG_EST'][0]) & (self.comb_data['FILE_EST'] < self.piece_data['PREHT_ZON_EXIT_EST'][0] + timedelta(minutes = 5))
         self._charge_idx = (self.comb_data['FILE_EST'] > self.piece_data['PREHT_ZON_EXIT_EST'][0] - timedelta(minutes = 5)) & (self.comb_data['FILE_EST'] < self.piece_data['CHRG_ZON_EXIT_EST'][0] + timedelta(minutes = 5))
@@ -495,7 +520,8 @@ class ColdBar:
                 self.email_text += "Model error is {0}".format(self.piece_data['MODEL_ERR'][0])
         else:
             self.email_text += "Based on back calculated temp, this piece is not too cold compared to DOT aim. <br />"
-            self.email_text += "FMET aim is {0}, and initial determined FMET is {1}. It's {2} degrees below the FMET aim. ".format(self.piece_data['AIM_ENT_TEMP'][0], self.piece_data['MEAS_FME_TEMP'][0], self.piece_data['AIM_ENT_TEMP'][0] - self.piece_data['MEAS_FME_TEMP'][0])
+            self.email_text += "FMET aim is {0}, and initial determined FMET is {1}. It's {2} degrees below the FMET aim. ".format(self.piece_data['AIM_ENT_TEMP'][0],
+                                self.piece_data['MEAS_FME_TEMP'][0], self.piece_data['AIM_ENT_TEMP'][0] - self.piece_data['MEAS_FME_TEMP'][0])
             if self.piece_data['MEAS_FME_TEMP'][0] - self.piece_data['AIM_ENT_TEMP'][0] > -40:
                 self.fmet_tolerance()
                 if not self.fmet_tight:
@@ -503,7 +529,6 @@ class ColdBar:
         
         self.pass_schedule()
         self.head_body_temp()
-        
 
     def do_analysis(self):    
         if not os.path.exists(self.directory):
@@ -512,6 +537,7 @@ class ColdBar:
         self.plot_temp_scan()
         self.plot_comb_zone()
         self.plot_heating_history()
+        self.plot_qms_trend()
         self.model_dot_err()
 
     def plot_temp_scan(self):
@@ -529,11 +555,11 @@ class ColdBar:
     def plot_comb_zone(self):
         fig, axes = plt.subplots(3, 4, sharey='row', figsize=(19, 9.5))
         for i in range(1, 13):
-            if i >= 1 and i <= 2 :
+            if 1 <= i <= 2:
                 idx = self._preheat_idx
-            elif i >= 3 and i <= 4 :
+            elif 3 <= i <= 4:
                 idx = self._charge_idx
-            elif i >= 5 and i <= 8 :
+            elif 5 <= i <= 8:
                 idx = self._inter_idx
             else:
                 idx = self._soak_idx
@@ -546,8 +572,8 @@ class ColdBar:
             axes[row][col].fmt_xdata =  matplotlib.dates.DateFormatter('%H:%M')
             axes[row][col].grid(linestyle='--')
             axes[row][col].text(0.5, 0.5, str(i), fontsize = 20, horizontalalignment='center', 
-                verticalalignment='center', transform=axes[row][col].transAxes, alpha=0.2)
-            if(row == 1 and col == 1):
+                                verticalalignment='center', transform=axes[row][col].transAxes, alpha=0.2)
+            if row == 1 and col == 1:
                 axes[row][col].legend()
         
         plt.tight_layout()
@@ -555,70 +581,55 @@ class ColdBar:
 
     def plot_heating_history(self):
         fig, ax = plt.subplots(figsize=(14, 8))
-        # Peheat zone
-        ln1 = ax.plot(self.comb_data.loc[self._preheat_idx, 'FILE_EST'], 
-        self.comb_data.loc[self._preheat_idx, ['SETPT_TEMP_1', 'SETPT_TEMP_2']].mean(axis = 1), 
-        color='#1f77b4', label='SP')
-        ln2 = ax.plot(self.comb_data.loc[self._preheat_idx, ['FILE_EST']], 
-        self.comb_data.loc[self._preheat_idx, ['TCA_1', 'TCA_2']].mean(axis = 1), 
-        '-.', color='#ff7f0e', label='TCA')
-        ln3 = ax.plot(self.comb_data.loc[self._preheat_idx, ['FILE_EST']], 
-        self.comb_data.loc[self._preheat_idx, ['TCB_1', 'TCB_2']].mean(axis = 1), 
-        '-.', color='#2ca02c', label='TCB')
+        # Preheat zone
+        ln1 = ax.plot(self.comb_data.loc[self._preheat_idx, 'FILE_EST'], self.comb_data.loc[self._preheat_idx,
+                        ['SETPT_TEMP_1', 'SETPT_TEMP_2']].mean(axis=1), color='#1f77b4', label='SP')
+        ln2 = ax.plot(self.comb_data.loc[self._preheat_idx, ['FILE_EST']], self.comb_data.loc[self._preheat_idx, [
+                        'TCA_1', 'TCA_2']].mean(axis=1), '-.', color='#ff7f0e', label='TCA')
+        ln3 = ax.plot(self.comb_data.loc[self._preheat_idx, ['FILE_EST']], self.comb_data.loc[self._preheat_idx,
+                        ['TCB_1', 'TCB_2']].mean(axis=1), '-.', color='#2ca02c', label='TCB')
         
         # Charge zone
-        ax.plot(self.comb_data.loc[self._charge_idx, ['FILE_EST']], 
-        self.comb_data.loc[self._charge_idx, ['SETPT_TEMP_3', 'SETPT_TEMP_4']].mean(axis = 1),
-        color='#1f77b4')
-        ax.plot(self.comb_data.loc[self._charge_idx, ['FILE_EST']], 
-        self.comb_data.loc[self._charge_idx, ['TCA_3', 'TCA_4']].mean(axis = 1),
-        '-.', color='#ff7f0e')
-        ax.plot(self.comb_data.loc[self._charge_idx, ['FILE_EST']], 
-        self.comb_data.loc[self._charge_idx, ['TCB_3', 'TCB_4']].mean(axis = 1),
-        '-.', color='#2ca02c')
+        ax.plot(self.comb_data.loc[self._charge_idx, ['FILE_EST']], self.comb_data.loc[self._charge_idx,
+                ['SETPT_TEMP_3', 'SETPT_TEMP_4']].mean(axis=1), color='#1f77b4')
+        ax.plot(self.comb_data.loc[self._charge_idx, ['FILE_EST']], self.comb_data.loc[self._charge_idx,
+                ['TCA_3', 'TCA_4']].mean(axis=1), '-.', color='#ff7f0e')
+        ax.plot(self.comb_data.loc[self._charge_idx, ['FILE_EST']], self.comb_data.loc[self._charge_idx,
+                ['TCB_3', 'TCB_4']].mean(axis=1), '-.', color='#2ca02c')
         
         # Intermediate zone
-        ax.plot(self.comb_data.loc[self._inter_idx, ['FILE_EST']], 
-        self.comb_data.loc[self._inter_idx, ['SETPT_TEMP_5', 'SETPT_TEMP_6', 
-                                             'SETPT_TEMP_7', 'SETPT_TEMP_8']].mean(axis = 1), 
-                                             color='#1f77b4')
-        ax.plot(self.comb_data.loc[self._inter_idx, ['FILE_EST']], 
-        self.comb_data.loc[self._inter_idx, ['TCA_5', 'TCA_6', 
-                                             'TCA_7', 'TCA_8']].mean(axis = 1),
-                                             '-.', color='#ff7f0e')
-        ax.plot(self.comb_data.loc[self._inter_idx, ['FILE_EST']], 
-        self.comb_data.loc[self._inter_idx, ['TCB_5', 'TCB_6', 
-                                             'TCB_7', 'TCB_8']].mean(axis = 1), 
-                                             '-.', color='#2ca02c')
+        ax.plot(self.comb_data.loc[self._inter_idx, ['FILE_EST']], self.comb_data.loc[self._inter_idx,
+                ['SETPT_TEMP_5', 'SETPT_TEMP_6', 'SETPT_TEMP_7', 'SETPT_TEMP_8']].mean(axis=1), color='#1f77b4')
+        ax.plot(self.comb_data.loc[self._inter_idx, ['FILE_EST']], self.comb_data.loc[self._inter_idx,
+                ['TCA_5', 'TCA_6', 'TCA_7', 'TCA_8']].mean(axis=1), '-.', color='#ff7f0e')
+        ax.plot(self.comb_data.loc[self._inter_idx, ['FILE_EST']], self.comb_data.loc[self._inter_idx,
+                ['TCB_5', 'TCB_6', 'TCB_7', 'TCB_8']].mean(axis=1), '-.', color='#2ca02c')
         
         # Soak zone
-        ax.plot(self.comb_data.loc[self._soak_idx, ['FILE_EST']], 
-        self.comb_data.loc[self._soak_idx, ['SETPT_TEMP_9', 'SETPT_TEMP_10', 
-                                            'SETPT_TEMP_11', 'SETPT_TEMP_12']].mean(axis = 1),
-                                            color='#1f77b4')
-        ax.plot(self.comb_data.loc[self._soak_idx, ['FILE_EST']], 
-        self.comb_data.loc[self._soak_idx, ['TCA_9', 'TCA_10', 
-                                            'TCA_11', 'TCA_12']].mean(axis = 1),
-                                            '-.', color='#ff7f0e')
-        ax.plot(self.comb_data.loc[self._soak_idx, ['FILE_EST']], 
-        self.comb_data.loc[self._soak_idx, ['TCB_9', 'TCB_10', 
-                                            'TCB_11', 'TCB_12']].mean(axis = 1),
-                                            '-.', color='#2ca02c')
+        ax.plot(self.comb_data.loc[self._soak_idx, ['FILE_EST']], self.comb_data.loc[self._soak_idx,
+                ['SETPT_TEMP_9', 'SETPT_TEMP_10', 'SETPT_TEMP_11', 'SETPT_TEMP_12']].mean(axis=1), color='#1f77b4')
+        ax.plot(self.comb_data.loc[self._soak_idx, ['FILE_EST']], self.comb_data.loc[self._soak_idx, ['TCA_9',
+                'TCA_10', 'TCA_11', 'TCA_12']].mean(axis=1), '-.', color='#ff7f0e')
+        ax.plot(self.comb_data.loc[self._soak_idx, ['FILE_EST']], self.comb_data.loc[self._soak_idx, ['TCB_9',
+                'TCB_10', 'TCB_11', 'TCB_12']].mean(axis=1), '-.', color='#2ca02c')
 
-        ax.plot([self.piece_data['PREHT_ZON_EXIT_EST'][0], self.piece_data['PREHT_ZON_EXIT_EST'][0]], [1100, 1400], 'r:', alpha=0.5)
-        ax.plot([self.piece_data['CHRG_ZON_EXIT_EST'][0], self.piece_data['CHRG_ZON_EXIT_EST'][0]], [1100, 1400], 'r:', alpha=0.5)
-        ax.plot([self.piece_data['INTERM_ZON_EXIT_EST'][0], self.piece_data['INTERM_ZON_EXIT_EST'][0]], [1100, 1400], 'r:', alpha=0.5)
+        ax.plot([self.piece_data['PREHT_ZON_EXIT_EST'][0], self.piece_data['PREHT_ZON_EXIT_EST'][0]],
+                [1100, 1400], 'r:', alpha=0.5)
+        ax.plot([self.piece_data['CHRG_ZON_EXIT_EST'][0], self.piece_data['CHRG_ZON_EXIT_EST'][0]],
+                [1100, 1400], 'r:', alpha=0.5)
+        ax.plot([self.piece_data['INTERM_ZON_EXIT_EST'][0], self.piece_data['INTERM_ZON_EXIT_EST'][0]],
+                [1100, 1400], 'r:', alpha=0.5)
         ax.set_ylim(1100, 1400)
         ax.xaxis.set_major_formatter(matplotlib.dates.DateFormatter('%H:%M'))
-        ax.fmt_xdata =  matplotlib.dates.DateFormatter('%H:%M')
+        ax.fmt_xdata = matplotlib.dates.DateFormatter('%H:%M')
         ax.set_ylabel('Temperature/C')
         ax.grid( axis='y', linestyle='--')
         
         ax_s = ax.twinx()
         ln4 = ax_s.plot(self.comb_data['FILE_EST'], self.comb_data['AVG_PACE_VEL'], 
-                  ':', color='#9467bd', alpha=0.9, label='Pace')
+                        ':', color='#9467bd', alpha=0.9, label='Pace')
         ax_s.xaxis.set_major_formatter(matplotlib.dates.DateFormatter('%H:%M'))
-        ax_s.fmt_xdata =  matplotlib.dates.DateFormatter('%H:%M')
+        ax_s.fmt_xdata = matplotlib.dates.DateFormatter('%H:%M')
         ax_s.set_ylabel('Pace m/h')
         
         lns = ln1 + ln2 + ln3 + ln4
@@ -627,6 +638,39 @@ class ColdBar:
         
         plt.tight_layout()
         fig.savefig(self.directory + '\\heat_his.png')
+
+    def plot_qms_trend(self):
+        fig, axes = plt.subplot(2, 2, figsize=(14, 8))
+
+        # DOT trend
+        axes[0][0].plot(self.trend_data['GEN_EST'], self.trend_data['INTGRT_AIM_FUR_EXTR_TEMP'], color='blue')
+        axes[0][0].plot(self.trend_data['GEN_EST'], self.trend_data['CALC_SLAB_EXTR_TEMP'], '.', color='blue')
+        axes[0][0].xaxis.set_major_formatter(matplotlib.dates.DateFormatter('%H:%M'))
+        axes[0][0].fmt_xdata = matplotlib.dates.DateFormatter('%H:%M')
+        axes[0][0].set_ylabel('Temperature/C')
+
+        # FM arrival trend
+        axes[1][0].plot(self.trend_data['SLAB_CHRG_EST'], self.trend_data['AIM_FM_ARR_AVG_LEAD_TEMP'], color='blue')
+        axes[1][0].plot(self.trend_data['SLAB_CHRG_EST'], self.trend_data['FM_ARR_AVG_LEAD_TEMP'], '.', color='blue')
+        axes[1][0].xaxis.set_major_formatter(matplotlib.dates.DateFormatter('%H:%M'))
+        axes[1][0].fmt_xdata = matplotlib.dates.DateFormatter('%H:%M')
+        axes[1][0].set_ylabel('Temperature/C')
+
+        # HIN trend
+        axes[0][1].plot(self.trend_data['SLAB_CHRG_EST'], self.trend_data['SCHED_HT_INDEX_NO'], '.', color='blue')
+        axes[0][1].plot(self.trend_data['SLAB_CHRG_EST'], self.trend_data['INTGRT_HT_NO'], '.', color='blue')
+        axes[0][1].xaxis.set_major_formatter(matplotlib.dates.DateFormatter('%H:%M'))
+        axes[0][1].fmt_xdata = matplotlib.dates.DateFormatter('%H:%M')
+        axes[0][1].set_ylabel('HIN')
+
+        # Charge temperature trend
+        axes[1][1].plot(self.trend_data['SLAB_CHRG_EST'], self.trend_data['SLAB_CHRG_TEMP'], '.', color='blue')
+        axes[1][1].xaxis.set_major_formatter(matplotlib.dates.DateFormatter('%H:%M'))
+        axes[1][1].fmt_xdata = matplotlib.dates.DateFormatter('%H:%M')
+        axes[1][1].set_ylabel('Temperature/C')
+
+        plt.tight_layout()
+        fig.savefig(self.directory + '\\trend.png')
         
     def send_email(self):
         outlook = win32.Dispatch('outlook.application')
@@ -639,9 +683,10 @@ class ColdBar:
         attachment2.PropertyAccessor.SetProperty("http://schemas.microsoft.com/mapi/proptag/0x3712001F", "MyId2")
         attachment3 = mail.Attachments.Add(self.directory + '\\RMXT.png')
         attachment3.PropertyAccessor.SetProperty("http://schemas.microsoft.com/mapi/proptag/0x3712001F", "MyId3")
-        mail.HTMLBody = "<html><body>{0} <br /><br /><br /><img src=""cid:MyId1""><br /><img src=""cid:MyId2""><br /><img src=""cid:MyId3""><br /></body></html>".format(self.email_text)
+        attachment4 = mail.Attachments.Add(self.directory + '\\trend.png')
+        attachment4.PropertyAccessor.SetProperty("http://schemas.microsoft.com/mapi/proptag/0x3712001F", "MyId4")
+        mail.HTMLBody = "<html><body>{0} <br /><br /><br /><img src=""cid:MyId1""><br /><img src=""cid:MyId2""><br /><img src=""cid:MyId3""><br /><img src=""cid:MyId4""><br /></body></html>".format(self.email_text)
         mail.send
-       
        
 
 if __name__ == "__main__":
