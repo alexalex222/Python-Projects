@@ -67,7 +67,7 @@ def web_scrap(name, pin, start_date, end_date, browser):
 
 if __name__ == "__main__":
     # create a new Chrome session
-    browser = webdriver.Chrome()
+    browser = webdriver.Chrome('/Users/kuilinchen/Repositories/Python-Projects/chromedriver')
     
     with open('login_credentials.txt') as f:
         for line in f:
