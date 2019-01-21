@@ -33,6 +33,8 @@ stdlib.h
 -
 unistd.h
 -
+crypt.h
+-
 stddef.h
 -
 assert.h
