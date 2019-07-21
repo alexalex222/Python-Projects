@@ -4,6 +4,9 @@
 from instapy import InstaPy
 from instapy import smart_run
 from instapy import set_workspace
+import os
+
+os.remove("/Users/kuilinchen/InstaPy/logs/eat_with_shelly/eat_with_shelly_cookie.pkl")
 
 
 # set workspace folder at desired location (default is at your home folder)
